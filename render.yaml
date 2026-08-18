@@ -1,0 +1,8 @@
+services:
+  # One-click deploy: push this folder to GitHub, then in Render:
+  # Dashboard -> New -> Blueprint -> select repo -> Apply
+  - type: web
+    name: temple-run-web
+    runtime: static
+    staticPublishPath: .
+    # If you renamed your repo, update the auto-deploy setting in the dashboard.

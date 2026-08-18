@@ -1,0 +1,100 @@
+# Temple Run — Web Edition 🕷️🏃
+
+A browser-playable, Temple Run–style endless runner built with the **real 3D
+assets** from the open-source Unity clone
+[`kenmaz/TempleRun-Unity`](https://github.com/kenmaz/TempleRun-Unity).
+
+No Unity, no plugins — pure **Three.js + WebGL**, deployable to **Render** as a
+static site.
+
+## ▶️ Play
+
+- **⬅ ➡ / A D** — change lane
+- **⬆ / Space** — jump rocks & logs
+- Swipe on touch screens; tap to jump
+- Grab coins, outrun the giant spider. Speed keeps climbing.
+
+## 🚀 Deploy to Render
+
+### Option A — Blueprint (recommended, one click)
+
+1. Push this folder to GitHub:
+
+   ```bash
+   cd temple-run-web
+   git init
+   git add .
+   git commit -m "Temple Run web edition"
+   git branch -M main
+   git remote add origin https://github.com/<you>/<repo>.git
+   git push -u origin main
+   ```
+
+2. Render dashboard → **New → Blueprint** → select the repo → **Apply**.
+
+   The included [`render.yaml`](render.yaml) creates the static site
+   automatically (`staticPublishPath: .`). Every `git push` redeploys.
+
+### Option B — Manual static site
+
+Render dashboard → **New → Static Site** → connect the repo → set:
+
+| Setting | Value |
+|---|---|
+| Build command | *(leave empty)* |
+| Publish directory | `.` |
+
+### Option C — Docker (Web Service)
+
+Render → **New → Web Service** → the included `Dockerfile` + `nginx.conf`
+serve the site behind nginx with correct `.glb` MIME types and caching.
+
+All three work on Render's **free tier**. Custom domains:
+Dashboard → Settings → Custom Domains.
+
+## 🏃 Run locally
+
+```bash
+cd temple-run-web
+python3 -m http.server 8000
+# open http://localhost:8000
+```
+
+## 🗂 What's inside
+
+```
+index.html              UI shell + import map
+game.js                 full game (three.js, no build step)
+render.yaml             Render Blueprint (static site)
+Dockerfile, nginx.conf  alternative Web-Service deploy
+lib/three.module.js     Three.js r160 (vendored, MIT)
+lib/addons/             GLTFLoader + BufferGeometryUtils
+assets/models/*.glb     palm, bamboo, banana, rock, spider — converted from
+                        the repo's original FBX files (textures embedded)
+assets/textures/        grass & path (Unity Terrain Assets) + Sunny1 skybox
+```
+
+Total payload ≈ 2.5 MB — no external CDNs, fully self-contained.
+
+## 🔧 How the 3D assets were produced
+
+The Unity repo ships old **FBX 6.0/6.1/7.3** files (some big-endian, some with
+zlib-compressed arrays and bogus end-offsets) that modern Blender rejects.
+They were converted to glTF/GLB with a custom converter (in
+`../temple-run-web-tools/`):
+
+- `fbx2glb.py` — FBX 6.0/6.1/7.3 binary parser + GLB writer (handles BE/LE,
+  compressed arrays, per-face materials/textures, model transforms)
+- `tex-index.json` + `tex-pool/` — PSD/TIF/TGA textures converted to PNG/JPEG
+- geometry validated against the `ufbx` parser (vertex/tri counts match)
+
+## ⚖️ Attribution & licensing
+
+- Game code (this repo): feel free to use.
+- 3D assets: Unity's free **Terrain Assets** sample pack, the third-party
+  *Infestor* spider, and Unity skyboxes — all shipped inside the public
+  `kenmaz/TempleRun-Unity` clone (which has no LICENSE file; assets are for
+  learning/non-commercial use).
+- *Temple Run* is a trademark of Imangi Studios; this is an independent
+  fan-made homage using none of their art or code.
+- Three.js: MIT.
