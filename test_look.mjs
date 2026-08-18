@@ -1,0 +1,17 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-gpu', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const errs = [];
+page.on('pageerror', (e) => errs.push(e.message));
+await page.goto('http://localhost:8000/', { waitUntil: 'domcontentloaded' });
+await page.waitForFunction(() => document.getElementById('loader').classList.contains('hidden'), null, { timeout: 30000 });
+await page.click('#btn-play');
+await page.waitForTimeout(1200);
+await page.evaluate(() => window.__lookUp());
+await page.waitForTimeout(500);
+await page.screenshot({ path: '/tmp/look_up.png' });
+await page.evaluate(() => window.__lookDown());
+await page.waitForTimeout(500);
+await page.screenshot({ path: '/tmp/look_down.png' });
+console.log('errors:', errs.length ? errs : 'NONE');
+await browser.close();

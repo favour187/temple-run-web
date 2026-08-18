@@ -43,6 +43,37 @@
   #hud-left .sub { font-size: 12px; opacity: 0.85; margin-top: 2px; }
   #hud-left .coins { font-size: 14px; margin-top: 4px; }
   #hud-left .fx { font-size: 11.5px; margin-top: 5px; min-height: 13px; letter-spacing: 0.4px; }
+  #hud-left .goldmeter { margin-top: 8px; }
+  #hud-left .goldmeter-lbl { font-size: 9.5px; letter-spacing: 1.2px; opacity: 0.75; margin-bottom: 3px; }
+  #hud-left .goldmeter-bar {
+    width: 128px; height: 7px; border-radius: 99px;
+    background: rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.16);
+    overflow: hidden;
+  }
+  #hud-left .goldmeter-fill {
+    width: 0%; height: 100%;
+    background: linear-gradient(90deg, #b9821a, #ffc94d 60%, #ffe9a8);
+    box-shadow: 0 0 10px rgba(255, 201, 77, 0.75);
+    transition: width 0.25s ease;
+  }
+
+  #vignette {
+    position: fixed; inset: 0; z-index: 15;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.55s ease;
+  }
+  #banner {
+    position: fixed; top: 24%; left: 50%; z-index: 18;
+    transform: translate(-50%, -50%) scale(0.55);
+    font-size: clamp(32px, 6.5vw, 58px);
+    font-weight: 900; letter-spacing: 4px;
+    color: #ffd76e;
+    text-shadow: 0 0 34px rgba(255, 190, 60, 0.95), 0 3px 10px rgba(0,0,0,0.75);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  #banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   #hud-left .coins .dot {
     display: inline-block; width: 10px; height: 10px; border-radius: 50%;
     background: radial-gradient(circle at 35% 35%, #ffe9a8, var(--gold) 60%, #b9821a);
@@ -148,6 +179,10 @@
   <div class="sub" id="speed">8.0 m/s</div>
   <div class="coins"><span class="dot"></span><span id="coins">0</span> <span style="opacity:.75;font-size:11px">IDOLS</span></div>
   <div class="fx" id="fx"></div>
+  <div class="goldmeter">
+    <div class="goldmeter-lbl">GOLD RUSH METER</div>
+    <div class="goldmeter-bar"><div class="goldmeter-fill" id="gold-fill"></div></div>
+  </div>
 </div>
 <div id="hud-right" class="hud hidden">
   <div class="lbl">BEST</div>
@@ -158,11 +193,12 @@
 <div id="overlay-menu" class="overlay">
   <div class="card">
     <div class="title">IDOL RUSH</div>
-    <div class="subtitle">You stole the golden idol. The temple guardian is right behind you.</div>
+    <div class="subtitle">You stole the golden idol. Now the temple is <b>collapsing</b> — and its guardian is right behind you.</div>
     <div class="howto">
       <div><b>⬅ ➡</b> / <b>A D</b><br>switch lane</div>
       <div><b>⬆</b> / <b>SPACE</b><br>jump rocks &amp; logs</div>
       <div><b>🥇</b><br>grab idols</div>
+      <div><b>🏆</b><br>10 idols = GOLD RUSH!</div>
       <div><b>🧲</b><br>magnet pulls idols</div>
       <div><b>🛡</b><br>shield smashes through</div>
       <div><b>🕐</b><br>slow-mo time warp</div>
@@ -184,6 +220,9 @@
     <div class="credit">Tap / Space also restarts</div>
   </div>
 </div>
+
+<div id="vignette"></div>
+<div id="banner">GOLD RUSH!</div>
 
 <div id="loader">
   <div class="spinner"></div>

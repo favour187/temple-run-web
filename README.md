@@ -5,6 +5,23 @@ golden idol from the temple, and the giant guardian spider is right behind
 you. Built for the browser with the **real 3D assets** from the open-source
 Unity clone [`kenmaz/TempleRun-Unity`](https://github.com/kenmaz/TempleRun-Unity).
 
+## 🌋 The spectacle (things you haven't seen in a runner)
+
+- **The world collapses around you.** The ground disintegrates into a glowing
+  golden void as you run — the jungle falls sideways into the abyss, leaving
+  only a narrow bridge of reality, and the collapse chases the guardian's
+  heels. Embers rise from the golden edge.
+- **Day → sunset → night cycle.** A custom GLSL sky shader renders the sun,
+  a procedural starfield, the moon and a sunset band as you run. At night
+  torches along the path light up and fireflies drift over the trail.
+- **GOLD RUSH.** Collect 10 idols and your thief turns solid gold:
+  invincible, magnetic, double score, with a golden particle trail, a
+  full-screen gold flash and an audio fanfare.
+- **The guardian roars.** Every ~15 s the spider lunges — screen shake, red
+  vignette pulse and a synthesized roar.
+- **Full juice suite**: dust under your boots, idol bursts, shield shatters,
+  screen shake, speed-based FOV kick, blob shadows, synthesized WebAudio SFX.
+
 No Unity, no plugins — pure **Three.js + WebGL**, deployable to **Render** as a
 static site.
 
