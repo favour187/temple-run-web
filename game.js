@@ -19,8 +19,10 @@ const POWERUP_TYPES = {
   magnet: { color: 0x3aa0ff, dur: 8 },
   shield: { color: 0x35d07f, dur: 6 },
   slowmo: { color: 0xb06cff, dur: 5 },
+  nitro: { color: 0xff7a1a, dur: 5 },
+  ghost: { color: 0x8de0ff, dur: 6 },
 };
-const fx = { magnet: 0, shield: 0, slowmo: 0 };  // remaining seconds per effect
+const fx = { magnet: 0, shield: 0, slowmo: 0, nitro: 0, ghost: 0 };  // remaining seconds per effect
 
 /* ---------------- constants ---------------- */
 const LANES = [2.5, 0, -2.5]; // camera looks down +Z: screen-right is -X, screen-left is +X
@@ -49,7 +51,7 @@ const smoothstep = (a, b, x) => {
 const $ = (id) => document.getElementById(id);
 const elScore = $('score'), elSpeed = $('speed'), elCoins = $('coins'), elBest = $('best'), elFx = $('fx');
 const elGoldFill = $('gold-fill');
-const overlayMenu = $('overlay-menu'), overlayDead = $('overlay-dead');
+const overlayMenu = $('overlay-menu'), overlayDead = $('overlay-dead'), overlayPause = $('overlay-pause');
 const elFinalScore = $('final-score'), elFinalCoins = $('final-coins'), elFinalBest = $('final-best');
 const hudLeft = $('hud-left'), hudRight = $('hud-right'), swipeHint = $('swipe-hint'), loader = $('loader');
 const vignetteEl = $('vignette'), bannerEl = $('banner');
@@ -89,6 +91,7 @@ const daySunColor = new THREE.Color(0xfff1d6);
 /* ---------------- audio (synthesized, no files) ---------------- */
 let actx = null;
 function audio() {
+  if (state.muted) return null;
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { /* no audio */ } }
   if (actx && actx.state === 'suspended') actx.resume();
   return actx;
@@ -120,6 +123,11 @@ const sfx = {
     [523, 659, 784, 1047, 1319].forEach((f, i) =>
       setTimeout(() => blip(f, f * 1.02, 0.22, 'triangle', 0.15), i * 85));
   },
+  nitro: () => blip(200, 900, 0.25, 'sawtooth', 0.14),
+  ghost: () => blip(500, 1000, 0.2, 'sine', 0.12),
+  slide: () => blip(800, 250, 0.15, 'sine', 0.1),
+  close: () => blip(1050, 1700, 0.09, 'triangle', 0.12),
+  milestone: () => blip(650, 1000, 0.2, 'triangle', 0.14),
 };
 
 /* ---------------- state ---------------- */
@@ -127,6 +135,7 @@ const state = {
   mode: 'boot', lane: 1, x: 0, y: 0, vy: 0, z: 0,
   speed: START_SPEED, distance: 0, coins: 0, bonus: 0, deadAt: 0,
   idolMeter: 0, goldT: 0, nextRoar: 15, lungeT: 0,
+  slide: 0, combo: 0, comboT: 0, muted: false,
 };
 
 /* ---------------- assets ---------------- */
@@ -262,9 +271,8 @@ function buildCollapsingGround(tex, w, h, repeatX, repeatY, yPos) {
         `#include <begin_vertex>
         {
           vec4 _wp = modelMatrix * vec4(transformed, 1.0);
-          float _side = smoothstep(0.0, 8.0, abs(_wp.x) - 5.8);
           float _back = smoothstep(0.0, 14.0, uCollapseZ - _wp.z);
-          float _sink = max(_side, _back);
+          float _sink = _back;
           transformed.y -= _sink * _sink * 70.0;
           transformed.y = max(transformed.y, -70.0);
           vSink = _sink;
@@ -303,6 +311,31 @@ const segments = [];
 let lastObstacleLane = -1;
 let chaserGlowMats = [];
 let goldMats = [];
+
+/* ---------------- golden void glow columns (rise from the collapsing edge) ---------------- */
+let voidGlows = [];
+function buildVoidGlow() {
+  for (let i = 0; i < 7; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flameTex, color: 0xffa428, transparent: true, depthWrite: false,
+      opacity: 0.45, blending: THREE.AdditiveBlending,
+    }));
+    s.scale.set(2.2, 6.5, 1);
+    s.position.set((i - 3) * 3.1, 2.4, -6.4);
+    s.userData = { base: (i - 3) * 3.1, ph: i * 1.7 };
+    scene.add(s);
+    voidGlows.push(s);
+  }
+}
+function updateVoidGlow(nowT, night) {
+  const cz = state.z - 6.4;
+  for (const g of voidGlows) {
+    g.position.z = cz;
+    g.position.x = g.userData.base + Math.sin(nowT * 0.8 + g.userData.ph) * 0.6;
+    g.position.y = 2.2 + Math.sin(nowT * 1.3 + g.userData.ph) * 0.5;
+    g.material.opacity = (0.4 + 0.14 * Math.sin(nowT * 2.1 + g.userData.ph)) * (0.8 + night * 0.9);
+  }
+}
 
 /* ---------------- blob shadows (cheap contact shadows, no shadow maps) ---------------- */
 let blobTex, blobMat;
@@ -427,18 +460,31 @@ function emitAmbient(dt, nowT) {
       );
     }
   }
-  // golden embers rising from the collapsing rims on both sides
+  // golden embers rising from the collapsing edge behind the guardian
   emberT -= dt;
   if (emberT <= 0) {
-    emberT = 0.035;
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const z = state.z - 11 + Math.random() * 28;
+    emberT = 0.04;
+    const z = state.z - 7.5 + Math.random() * 5;
     spawnP(
-      side * (6.0 + Math.random() * 2.4), Math.random() * 1.4, z,
-      -side * (0.2 + Math.random() * 0.5), 1.0 + Math.random() * 2.4, 0.2 + Math.random() * 0.4,
-      1.4 + Math.random() * 1.2, 2.0 + Math.random() * 2.6,
+      (Math.random() - 0.5) * 12, Math.random() * 1.2, z,
+      (Math.random() - 0.5) * 0.4, 1.2 + Math.random() * 2.2, 0.2,
+      1.6 + Math.random() * 0.6, 2.2 + Math.random() * 1.8,
       1.0, 0.55 + Math.random() * 0.3, 0.14, 0.2
     );
+  }
+  // wind streaks when running fast
+  if (run && state.speed > 14) {
+    trailT -= dt * 2;
+    if (trailT <= 0) {
+      trailT = 0.06;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      spawnP(
+        side * (7 + Math.random() * 3), 0.8 + Math.random() * 2.2, state.z + 2 + Math.random() * 12,
+        -side * (16 + Math.random() * 10), 0, -2,
+        0.35, 1.6 + Math.random() * 1.4,
+        0.92, 0.96, 1.0
+      );
+    }
   }
   // golden trail during GOLD RUSH
   if (run && state.goldT > 0) {
@@ -595,16 +641,38 @@ function makePowerup(type) {
   return g;
 }
 
+function makeHanging(lane) {
+  // a branch bar across the lane at head height — slide under it!
+  const g = new THREE.Group();
+  const woodM = new THREE.MeshStandardMaterial({ color: 0x7a4a35, roughness: 0.9 });
+  const postGeo = new THREE.CylinderGeometry(0.06, 0.085, 1.7, 8);
+  const postL = new THREE.Mesh(postGeo, woodM); postL.position.set(-1.25, 0.85, 0);
+  const postR = new THREE.Mesh(postGeo, woodM); postR.position.set(1.25, 0.85, 0);
+  const bar = cloneModel('bamboo', 0.28);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.y = 1.52;
+  g.add(postL, postR, bar);
+  g.userData = { lane, jumpable: false, hang: true, tall: 1.55 };
+  return g;
+}
+
 function makeObstacle(lane) {
   const r = Math.random();
   const g = new THREE.Group();
   g.userData = { lane, jumpable: false };
-  if (r < 0.42) {
+  if (r < 0.2) {
+    // hanging branch — slide under (⬇ / S)
+    const h = makeHanging(lane);
+    h.userData.x = LANES[lane];
+    h.position.x = LANES[lane];
+    addBlob(h, 2.0);
+    return h;
+  } else if (r < 0.5) {
     const rock = cloneModel('rock', 1.15 + Math.random() * 0.35);
     rock.rotation.y = Math.random() * Math.PI * 2;
     g.add(rock);
     g.userData.tall = 1.15;
-  } else if (r < 0.72) {
+  } else if (r < 0.78) {
     const rock = cloneModel('rock', 1.0 + Math.random() * 0.3);
     rock.scale.y = 0.38;
     rock.position.y = 0.12;
@@ -759,50 +827,105 @@ function disposeObject(o) {
 
 /* ---------------- player character (idol thief) ---------------- */
 function buildRunner() {
+  // A FULL character: chunky stylized idol thief — face with eyes, hair under
+  // a banded fedora, leather vest over the shirt, red scarf with a waving
+  // tail, satchel + bag, gloved hands, backpack with bedroll, and a lantern
+  // that glows at night.
   const runner = new THREE.Group();
   const std = (color, rough = 0.85) =>
     new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0 });
 
-  const skinM = std(0xe8b98a, 0.75);
-  const shirtM = std(0x3b6fd4, 0.8);
-  const pantsM = std(0x6b4a2f, 0.9);
-  const bootsM = std(0x423a30, 0.7);
-  const hatM = std(0x8a5a2b, 0.75);
-  const sashM = std(0xc0392b, 0.7);
+  const skinM = std(0xe8b98a, 0.7);
+  const shirtM = std(0x3b6fd4, 0.75);
+  const vestM = std(0x8a5a2b, 0.8);
+  const pantsM = std(0x5d4327, 0.9);
+  const bootsM = std(0x3a2f24, 0.6);
+  const hatM = std(0x7c4f24, 0.7);
+  const hatBandM = std(0xc0392b, 0.6);
+  const scarfM = std(0xd8402f, 0.7);
+  const gloveM = std(0x6b4a2f, 0.7);
   const packM = std(0x5c4a32, 0.85);
+  const metalM = std(0x2c2c30, 0.4);
+  const hairM = std(0x3a2818, 0.85);
 
-  const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.6, 10);
-  legGeo.translate(0, -0.3, 0);
-  const legL = new THREE.Mesh(legGeo, pantsM); legL.position.set(-0.09, 0.5, 0);
-  const legR = new THREE.Mesh(legGeo, pantsM); legR.position.set(0.09, 0.5, 0);
-  const bootGeo = new THREE.BoxGeometry(0.13, 0.12, 0.24);
-  const bootL = new THREE.Mesh(bootGeo, bootsM); bootL.position.set(0, -0.42, 0.04);
-  const bootR = new THREE.Mesh(bootGeo, bootsM); bootR.position.set(0, -0.42, 0.04);
+  // ---- chunky legs with cuffs + boots ----
+  const legGeo = new THREE.CylinderGeometry(0.095, 0.075, 0.58, 12);
+  legGeo.translate(0, -0.29, 0);
+  const legL = new THREE.Mesh(legGeo, pantsM); legL.position.set(-0.105, 0.48, 0);
+  const legR = new THREE.Mesh(legGeo, pantsM); legR.position.set(0.105, 0.48, 0);
+  const cuffGeo = new THREE.CylinderGeometry(0.1, 0.09, 0.1, 12);
+  const cuffL = new THREE.Mesh(cuffGeo, pantsM); cuffL.position.set(0, -0.5, 0);
+  const cuffR = new THREE.Mesh(cuffGeo, pantsM); cuffR.position.set(0, -0.5, 0);
+  legL.add(cuffL); legR.add(cuffR);
+  const bootGeo = new THREE.BoxGeometry(0.17, 0.15, 0.3);
+  const bootL = new THREE.Mesh(bootGeo, bootsM); bootL.position.set(0, -0.62, 0.05);
+  const bootR = new THREE.Mesh(bootGeo, bootsM); bootR.position.set(0, -0.62, 0.05);
   legL.add(bootL); legR.add(bootR);
 
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.135, 0.5, 14), shirtM);
-  torso.position.y = 1.05;
-  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.035, 8, 20), sashM);
-  sash.position.y = 0.88;
+  // ---- torso: shirt + open leather vest + belt + satchel ----
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.215, 0.16, 0.55, 16), shirtM);
+  torso.position.y = 1.06;
+  const vestGeo = new THREE.SphereGeometry(0.185, 12, 10);
+  const vestL = new THREE.Mesh(vestGeo, vestM);
+  vestL.scale.set(0.55, 0.95, 0.5); vestL.position.set(-0.118, 1.08, 0.02);
+  const vestR = new THREE.Mesh(vestGeo, vestM);
+  vestR.scale.set(0.55, 0.95, 0.5); vestR.position.set(0.118, 1.08, 0.02);
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.155, 0.045, 8, 20), hatBandM);
+  belt.position.y = 0.84;
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.66, 0.045), vestM);
+  strap.position.set(0.1, 1.08, 0.155); strap.rotation.z = -0.55;
+  const bag = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.09), packM);
+  bag.position.set(-0.2, 0.86, 0.05);
 
-  const armGeo = new THREE.CylinderGeometry(0.05, 0.042, 0.5, 10);
+  // ---- thicker arms + gloved hands ----
+  const armGeo = new THREE.CylinderGeometry(0.068, 0.055, 0.5, 10);
   armGeo.translate(0, -0.25, 0);
-  const armL = new THREE.Mesh(armGeo, shirtM); armL.position.set(-0.235, 1.2, 0);
-  const armR = new THREE.Mesh(armGeo, shirtM); armR.position.set(0.235, 1.2, 0);
-  const handGeo = new THREE.SphereGeometry(0.052, 10, 8);
-  const handL = new THREE.Mesh(handGeo, skinM); handL.position.set(0, -0.28, 0);
-  const handR = new THREE.Mesh(handGeo, skinM); handR.position.set(0, -0.28, 0);
+  const armL = new THREE.Mesh(armGeo, shirtM); armL.position.set(-0.27, 1.22, 0);
+  const armR = new THREE.Mesh(armGeo, shirtM); armR.position.set(0.27, 1.22, 0);
+  const handGeo = new THREE.SphereGeometry(0.068, 10, 8);
+  const handL = new THREE.Mesh(handGeo, gloveM); handL.position.set(0, -0.3, 0);
+  const handR = new THREE.Mesh(handGeo, gloveM); handR.position.set(0, -0.3, 0);
   armL.add(handL); armR.add(handR);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 14), skinM);
-  head.position.y = 1.45;
-  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.035, 18), hatM);
-  brim.position.y = 1.575;
-  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.185, 0.13, 16), hatM);
-  crown.position.y = 1.645;
+  // ---- head: face with eyes + hair + fedora with band ----
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.175, 20, 16), skinM);
+  head.position.y = 1.52;
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.185, 20, 14), hairM);
+  hair.scale.set(1, 0.8, 1.05); hair.position.set(0, 1.56, -0.08);
+  const eyeWhiteGeo = new THREE.SphereGeometry(0.045, 10, 8);
+  const eyeWhiteL = new THREE.Mesh(eyeWhiteGeo, std(0xffffff, 0.4));
+  eyeWhiteL.position.set(-0.065, 1.55, 0.145);
+  const eyeWhiteR = new THREE.Mesh(eyeWhiteGeo, std(0xffffff, 0.4));
+  eyeWhiteR.position.set(0.065, 1.55, 0.145);
+  const pupilGeo = new THREE.SphereGeometry(0.022, 8, 6);
+  const pupilL = new THREE.Mesh(pupilGeo, std(0x16121a, 0.3));
+  pupilL.position.set(-0.065, 1.55, 0.188);
+  const pupilR = new THREE.Mesh(pupilGeo, std(0x16121a, 0.3));
+  pupilR.position.set(0.065, 1.55, 0.188);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), std(0xd99a6c, 0.75));
+  nose.position.set(0, 1.5, 0.175);
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 22), hatM);
+  brim.position.y = 1.68;
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.2, 0.15, 18), hatM);
+  crown.position.y = 1.77;
+  const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.183, 0.185, 0.05, 18), hatBandM);
+  hatBand.position.y = 1.745;
 
-  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.34, 0.16), packM);
-  pack.position.set(0, 1.1, -0.22);
+  // ---- red scarf: neck + trailing tail that waves ----
+  const scarfNeck = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.05, 8, 18), scarfM);
+  scarfNeck.position.y = 1.28;
+  scarfNeck.scale.set(1, 0.7, 1.15);
+  const scarfTailGeo = new THREE.BoxGeometry(0.14, 0.5, 0.03);
+  scarfTailGeo.translate(0, 0.25, 0); // pivot at the neck end
+  const scarfTail = new THREE.Mesh(scarfTailGeo, scarfM);
+  scarfTail.position.set(-0.16, 1.12, -0.2);
+
+  // ---- backpack with bedroll + the stolen idol ----
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.4, 0.18), packM);
+  pack.position.set(0, 1.12, -0.24);
+  const bedroll = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.34, 10), std(0x9a7a4a, 0.9));
+  bedroll.rotation.x = Math.PI / 2;
+  bedroll.position.set(0, 1.36, -0.26);
   const idol = MODELS.rock.scene.clone(true);
   idol.traverse((o) => {
     if (o.isMesh) o.material = new THREE.MeshStandardMaterial({
@@ -810,13 +933,46 @@ function buildRunner() {
       emissive: 0x6b4a00, emissiveIntensity: 0.55,
     });
   });
-  idol.scale.setScalar(0.13);
-  idol.position.set(0, 1.3, -0.28);
-  idol.rotation.y = 0.6;
+  idol.scale.setScalar(0.15);
+  idol.position.set(0.12, 1.44, -0.3);
+  idol.rotation.y = 0.7;
 
-  runner.add(legL, legR, torso, sash, armL, armR, head, brim, crown, pack, idol);
-  runner.userData = { legL, legR, armL, armR, runPhase: 0 };
+  // ---- lantern in the left hand (glows at night) ----
+  const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.16, 10), metalM);
+  lantern.position.set(0, -0.4, 0.06);
+  const lanternGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: flameTex, transparent: true, depthWrite: false, opacity: 0.05,
+    blending: THREE.AdditiveBlending,
+  }));
+  lanternGlow.scale.setScalar(0.85);
+  lanternGlow.position.set(0, -0.4, 0.06);
+  handL.add(lantern, lanternGlow);
+
+  runner.add(legL, legR, torso, vestL, vestR, belt, strap, bag,
+    armL, armR, head, hair, eyeWhiteL, eyeWhiteR, pupilL, pupilR, nose,
+    brim, crown, hatBand, scarfNeck, scarfTail, pack, bedroll, idol);
+  runner.userData = { legL, legR, armL, armR, torso, scarfTail, lanternGlow, runPhase: 0 };
   return runner;
+}
+
+function setGhost(on) {
+  player.traverse((o) => {
+    if (!o.isMesh || o === shieldBubble) return;
+    const m = o.material;
+    if (!m || !m.isMeshStandardMaterial) return;
+    if (on) {
+      if (m.userData.ghosted) return;
+      m.userData.ghosted = true;
+      m.userData.origTransparent = m.transparent;
+      m.userData.origOpacity = m.opacity;
+      m.transparent = true;
+      m.opacity = 0.42;
+    } else if (m.userData.ghosted) {
+      m.userData.ghosted = false;
+      m.transparent = m.userData.origTransparent;
+      m.opacity = m.userData.origOpacity;
+    }
+  });
 }
 
 function setPlayerGold(on) {
@@ -849,12 +1005,13 @@ function buildWorld() {
   }
 
   player = buildRunner();
+  player.scale.setScalar(1.22);
   player.position.set(0, 0, 0);
   scene.add(player);
-  addBlob(player, 1.05);
+  addBlob(player, 1.25);
 
   shieldBubble = new THREE.Mesh(
-    new THREE.SphereGeometry(1.05, 16, 12),
+    new THREE.SphereGeometry(1.4, 16, 12),
     new THREE.MeshBasicMaterial({ color: 0x7dffa0, transparent: true, opacity: 0.22, depthWrite: false })
   );
   shieldBubble.visible = false;
@@ -886,14 +1043,31 @@ function jump() {
     sfx.jump();
   }
 }
+function slide() {
+  if (state.mode === 'run' && state.y <= 0.001 && state.slide <= 0.4) {
+    state.slide = 0.85;
+    sfx.slide();
+  }
+}
+function togglePause() {
+  if (state.mode === 'run') { state.mode = 'pause'; overlayPause.classList.remove('hidden'); }
+  else if (state.mode === 'pause') { state.mode = 'run'; overlayPause.classList.add('hidden'); clock.getDelta(); }
+}
+function toggleMute() {
+  state.muted = !state.muted;
+  if ($('btn-mute')) $('btn-mute').textContent = state.muted ? 'Sound: OFF' : 'Sound: ON';
+}
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyP' || e.code === 'Escape') { togglePause(); e.preventDefault(); return; }
+  if (e.code === 'KeyM') { toggleMute(); e.preventDefault(); return; }
   if (state.mode === 'menu' && (e.code === 'Space' || e.code === 'Enter')) { startGame(); return; }
   if (state.mode === 'dead' && (e.code === 'Space' || e.code === 'Enter')) { startGame(); return; }
   switch (e.code) {
     case 'ArrowLeft': case 'KeyA': setLane(-1); e.preventDefault(); break;
     case 'ArrowRight': case 'KeyD': setLane(1); e.preventDefault(); break;
     case 'ArrowUp': case 'KeyW': case 'Space': jump(); e.preventDefault(); break;
+    case 'ArrowDown': case 'KeyS': slide(); e.preventDefault(); break;
   }
 });
 
@@ -936,6 +1110,20 @@ function showBanner(text) {
   bannerTimer = setTimeout(() => bannerEl.classList.remove('show'), 1350);
 }
 
+function pop(text, color) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  Object.assign(d.style, {
+    position: 'fixed', left: '50%', top: '30%', transform: 'translateX(-50%)',
+    color: color || '#ffd76e', fontSize: '26px', fontWeight: '900', zIndex: '19',
+    pointerEvents: 'none', textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+    transition: 'all 0.9s ease-out', opacity: '1',
+  });
+  document.body.appendChild(d);
+  requestAnimationFrame(() => { d.style.top = '22%'; d.style.opacity = '0'; });
+  setTimeout(() => d.remove(), 950);
+}
+
 let vignetteTimer = null;
 function flashVignette(kind) {
   vignetteEl.style.background = kind === 'gold'
@@ -949,6 +1137,21 @@ function flashVignette(kind) {
 /* ---------------- game flow ---------------- */
 let laneSwitchT = 1;
 let laneFromX = 0;
+let lastMilestone = 0;
+
+const RECENT_KEY = 'idol-rush-recent';
+let recent = [];
+try { recent = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch (e) { recent = []; }
+function renderRecent() {
+  const el = $('recent-list');
+  if (el) el.textContent = recent.length ? recent.slice().reverse().map((v) => v + ' m').join('  ·  ') : 'No runs yet';
+}
+function pushRecent(score) {
+  recent.push(score);
+  if (recent.length > 5) recent.shift();
+  localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+  renderRecent();
+}
 
 function startGame() {
   audio();
@@ -959,17 +1162,22 @@ function startGame() {
   state.bonus = 0;
   state.z = 0; state.speed = START_SPEED; state.distance = 0; state.coins = 0;
   state.idolMeter = 0; state.goldT = 0; state.nextRoar = 15; state.lungeT = 0;
+  state.slide = 0; state.combo = 0; state.comboT = 0;
+  lastMilestone = 0;
   setPlayerGold(false);
-  fx.magnet = 0; fx.shield = 0; fx.slowmo = 0;
+  setGhost(false);
+  fx.magnet = 0; fx.shield = 0; fx.slowmo = 0; fx.nitro = 0; fx.ghost = 0;
   shieldBubble.visible = false;
   if (player.userData) player.userData.runPhase = 0;
   player.position.set(0, 0, 0);
   player.rotation.set(0, 0, 0);
+  player.scale.set(1.22, 1.22, 1.22);
   chaser.position.set(0, 0, -CHASE_GAP);
   player.visible = true;
   elGoldFill.style.width = '0%';
   overlayMenu.classList.add('hidden');
   overlayDead.classList.add('hidden');
+  overlayPause.classList.add('hidden');
   hudLeft.classList.remove('hidden');
   hudRight.classList.remove('hidden');
   swipeHint.classList.remove('hidden');
@@ -983,6 +1191,8 @@ function gameOver() {
   shake(0.9);
   flashVignette('red');
   setPlayerGold(false);
+  setGhost(false);
+  state.combo = 0;
   const finalScore = Math.floor(state.distance + state.coins * COIN_SCORE + state.bonus);
   if (finalScore > best) {
     best = finalScore;
@@ -994,6 +1204,7 @@ function gameOver() {
   elFx.innerHTML = '';
   hudLeft.classList.add('hidden');
   swipeHint.classList.add('hidden');
+  pushRecent(finalScore);
   setTimeout(() => overlayDead.classList.remove('hidden'), 550);
 }
 
@@ -1024,6 +1235,17 @@ function doRoar() {
   sfx.roar();
   shake(0.55);
   flashVignette('red');
+}
+
+function nearMiss(ob) {
+  if (ob.userData.scored) return;
+  ob.userData.scored = true;
+  state.combo += 1;
+  state.comboT = 3.0;
+  const pts = 5 * Math.min(state.combo, 5);
+  state.bonus += pts;
+  pop(`CLOSE! +${pts}`, state.combo > 3 ? '#ff9a3d' : '#ffd76e');
+  sfx.close();
 }
 
 function collectIdol(idol) {
@@ -1093,6 +1315,11 @@ function updateSkyAndLights(t, nowT) {
     m.emissiveIntensity = 0.5 + 0.4 * Math.sin(nowT * 11);
   }
 
+  // lantern glows at night
+  if (player && player.userData.lanternGlow) {
+    player.userData.lanternGlow.material.opacity = 0.05 + night * 0.85;
+  }
+
   return { night, dusk };
 }
 
@@ -1114,9 +1341,7 @@ function updateSinking(dt) {
         if (!o.userData || o.userData.smashed) continue;
         const wz = seg.position.z + o.position.z;
         const behind = (cz - wz) / 12.0;
-        // jungle decor also falls sideways into the void (the bridge narrows)
-        const lateral = list === seg.userData.decor ? (Math.abs(o.position.x) - 6.4) / 4.5 : 0;
-        const f = Math.max(behind, lateral);
+        const f = behind;
         if (f > 0 && o.position.y > -30) {
           o.position.y -= (8 + f * 14) * dt;
           o.rotation.z += dt * (0.6 + f * 0.9);
@@ -1141,6 +1366,7 @@ function update(dt) {
   emitAmbient(dt, nowT);
   updateSinking(dt);
 
+  updateVoidGlow(nowT, night);
   if (state.mode === 'menu') {
     // cinematic attract orbit
     const a = nowT * 0.22;
@@ -1148,6 +1374,7 @@ function update(dt) {
     camera.lookAt(0, 1.05, 0);
     return;
   }
+  if (state.mode === 'pause') return;
   if (state.mode !== 'run' && state.mode !== 'dead') return;
 
   if (state.mode === 'run') {
@@ -1158,11 +1385,20 @@ function update(dt) {
       if (state.goldT <= 0) { state.goldT = 0; setPlayerGold(false); }
     }
 
-    state.speed = Math.min(MAX_SPEED, state.speed + RAMP * dt * (fx.slowmo > 0 ? 0.35 : 1));
-    const eff = state.speed * (fx.slowmo > 0 ? 0.62 : 1);
+    const nitroBoost = fx.nitro > 0;
+    state.speed = Math.min(
+      MAX_SPEED + (nitroBoost ? 6 : 0),
+      state.speed + RAMP * dt * (fx.slowmo > 0 ? 0.35 : 1) + (nitroBoost ? 13 * dt : 0)
+    );
+    const eff = state.speed * (fx.slowmo > 0 ? 0.62 : 1) * (nitroBoost ? 1.5 : 1);
     const goldMult = state.goldT > 0 ? 2 : 1;
     state.distance += eff * dt * goldMult;
     state.z += eff * dt;
+    state.slide = Math.max(0, state.slide - dt);
+    if (state.combo > 0) {
+      state.comboT -= dt;
+      if (state.comboT <= 0) state.combo = 0;
+    }
 
     // guardian roar + lunge
     state.nextRoar -= dt;
@@ -1263,12 +1499,17 @@ function update(dt) {
         const worldZ = seg.position.z + ob.position.z;
         if (Math.abs(worldZ - state.z) < OBSTACLE_HALF_Z) {
           const ox = ob.userData.x;
-          if (Math.abs(state.x - ox) < OBSTACLE_HALF_X) {
-            if (ob.userData.jumpable && state.y > 0.55) continue;
+          const dx = Math.abs(state.x - ox);
+          if (dx < OBSTACLE_HALF_X) {
+            if (ob.userData.hang && state.slide > 0) { nearMiss(ob); continue; }
+            if (ob.userData.jumpable && state.y > 0.55) { nearMiss(ob); continue; }
+            if (fx.ghost > 0) { nearMiss(ob); continue; }
             if (state.goldT > 0) { smashObstacle(ob); continue; }
             if (fx.shield > 0) { fx.shield = 0; smashObstacle(ob); continue; }
             gameOver();
             return;
+          } else if (dx < 2.8) {
+            nearMiss(ob);
           }
         }
       }
@@ -1306,7 +1547,8 @@ function update(dt) {
 
   const targetFov = 70
     + ((state.speed - START_SPEED) / (MAX_SPEED - START_SPEED)) * 7
-    + (state.goldT > 0 ? 4 : 0);
+    + (state.goldT > 0 ? 4 : 0)
+    + (fx.nitro > 0 ? 6 : 0);
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
   camera.updateProjectionMatrix();
 
@@ -1352,11 +1594,20 @@ function update(dt) {
   elGoldFill.style.width = state.goldT > 0
     ? '100%'
     : `${Math.min(100, state.idolMeter / GOLD_IDOLS * 100)}%`;
+  const ms = Math.floor(totalScore / 250);
+  if (ms > lastMilestone) {
+    lastMilestone = ms;
+    showBanner(`${ms * 250} m!`);
+    sfx.milestone();
+  }
   const fxBits = [];
   if (state.goldT > 0) fxBits.push(`<span style="color:#ffd76e;font-weight:800">GOLD RUSH ×2 ${state.goldT.toFixed(1)}s</span>`);
+  if (fx.nitro > 0) fxBits.push(`<span style="color:#ff9a3d;font-weight:800">NITRO ${Math.ceil(fx.nitro)}s</span>`);
   if (fx.magnet > 0) fxBits.push(`<span style="color:#5fb2ff">MAGNET ${Math.ceil(fx.magnet)}s</span>`);
   if (fx.shield > 0) fxBits.push(`<span style="color:#6fe08a">SHIELD ${Math.ceil(fx.shield)}s</span>`);
   if (fx.slowmo > 0) fxBits.push(`<span style="color:#c58bff">SLOW-MO ${Math.ceil(fx.slowmo)}s</span>`);
+  if (fx.ghost > 0) fxBits.push(`<span style="color:#9fdcff">GHOST ${Math.ceil(fx.ghost)}s</span>`);
+  if (state.combo > 1) fxBits.push(`<span style="color:#ffb02e">CLOSE ×${state.combo}</span>`);
   elFx.innerHTML = fxBits.join(' · ');
 }
 
@@ -1382,7 +1633,9 @@ let ASSETS = null;
     grassPlane = buildCollapsingGround(ASSETS.grassTex, 300, 320, 150, 160, -0.02);
     pathPlane = buildCollapsingGround(ASSETS.pathTex, 7.4, 320, 1, 160, 0.005);
     buildWorld();
+    buildVoidGlow();
     elBest.textContent = `${best} m`;
+    renderRecent();
     loader.classList.add('hidden');
     state.mode = 'menu';
     overlayMenu.classList.remove('hidden');
@@ -1397,3 +1650,9 @@ let ASSETS = null;
 
 $('btn-play').addEventListener('click', startGame);
 $('btn-restart').addEventListener('click', startGame);
+$('btn-resume').addEventListener('click', togglePause);
+$('btn-pause-restart').addEventListener('click', startGame);
+$('btn-mute').addEventListener('click', toggleMute);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.mode === 'run') togglePause();
+});

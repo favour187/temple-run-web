@@ -7,16 +7,20 @@ Unity clone [`kenmaz/TempleRun-Unity`](https://github.com/kenmaz/TempleRun-Unity
 
 ## 🌋 The spectacle (things you haven't seen in a runner)
 
-- **The world collapses around you.** The ground disintegrates into a glowing
-  golden void as you run — the jungle falls sideways into the abyss, leaving
-  only a narrow bridge of reality, and the collapse chases the guardian's
-  heels. Embers rise from the golden edge.
+- **The world collapses behind you.** The ground disintegrates into a glowing
+  golden void that chases the guardian's heels — columns of golden light and
+  embers rise from the crumbling edge right at the bottom of the screen,
+  while the road edges stay clean and readable.
 - **Day → sunset → night cycle.** A custom GLSL sky shader renders the sun,
   a procedural starfield, the moon and a sunset band as you run. At night
   torches along the path light up and fireflies drift over the trail.
 - **GOLD RUSH.** Collect 10 idols and your thief turns solid gold:
   invincible, magnetic, double score, with a golden particle trail, a
   full-screen gold flash and an audio fanfare.
+- **A full character.** The thief is a complete stylized adventurer — face
+  with eyes, hair under a banded fedora, leather vest, waving red scarf,
+  satchel, gloved hands, backpack with bedroll, and a lantern that glows at
+  night. Full run/jump/slide/tumble animation set.
 - **The guardian roars.** Every ~15 s the spider lunges — screen shake, red
   vignette pulse and a synthesized roar.
 - **Full juice suite**: dust under your boots, idol bursts, shield shatters,
@@ -29,11 +33,16 @@ static site.
 
 - **⬅ ➡ / A D** — change lane
 - **⬆ / Space** — jump rocks & logs
-- Swipe on touch screens; tap to jump
+- **⬇ / S** — slide under hanging branches
+- Swipe on touch screens; tap to jump, swipe down to slide
 - **🥇 Grab idols** — +25 m each
 - **🧲 Magnet** — pulls nearby idols to you (8 s)
 - **🛡 Shield** — smash straight through one obstacle (6 s)
 - **🕐 Slow-mo** — time warp for tight dodges (5 s)
+- **⚡ Nitro** — speed burst, wind streaks, ×1.5 score (5 s)
+- **👻 Ghost** — phase straight through obstacles (6 s)
+- **✨ Near-miss combos** — shave past obstacles for bonus meters (×5 max)
+- **P / Esc** pause · **M** mute · milestones every 250 m · last 5 runs on the menu
 - Outrun the giant guardian spider. Speed keeps climbing — and so does it.
 
 ## 🚀 Deploy to Render

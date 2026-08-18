@@ -188,7 +188,7 @@
   <div class="lbl">BEST</div>
   <div class="best" id="best">0 m</div>
 </div>
-<div id="swipe-hint" class="hidden">⬅ ➡ swipe to change lane &nbsp;·&nbsp; ⬆ swipe / space to jump &nbsp;·&nbsp; grab the crystals!</div>
+<div id="swipe-hint" class="hidden">⬅ ➡ lane &nbsp;·&nbsp; ⬆ jump &nbsp;·&nbsp; ⬇ slide &nbsp;·&nbsp; grab the crystals!</div>
 
 <div id="overlay-menu" class="overlay">
   <div class="card">
@@ -197,14 +197,32 @@
     <div class="howto">
       <div><b>⬅ ➡</b> / <b>A D</b><br>switch lane</div>
       <div><b>⬆</b> / <b>SPACE</b><br>jump rocks &amp; logs</div>
+      <div><b>⬇</b> / <b>S</b><br>slide under branches</div>
       <div><b>🥇</b><br>grab idols</div>
       <div><b>🏆</b><br>10 idols = GOLD RUSH!</div>
       <div><b>🧲</b><br>magnet pulls idols</div>
       <div><b>🛡</b><br>shield smashes through</div>
       <div><b>🕐</b><br>slow-mo time warp</div>
+      <div><b>⚡</b><br>nitro speed burst</div>
+      <div><b>👻</b><br>ghost phases through</div>
+      <div><b>✨</b><br>near-miss combos</div>
+      <div><b>P · M</b><br>pause · mute</div>
     </div>
     <button class="btn" id="btn-play">RUN</button>
     <div class="credit">Guardian spider, palms, bamboo &amp; rocks — 3D assets from the public kenmaz/TempleRun-Unity project · Three.js</div>
+    <div class="credit" style="margin-top:8px">RECENT: <span id="recent-list">No runs yet</span></div>
+  </div>
+</div>
+
+<div id="overlay-pause" class="overlay hidden">
+  <div class="card">
+    <div class="title" style="font-size:clamp(28px,6vw,44px)">PAUSED</div>
+    <div class="subtitle" style="margin-top:10px">The guardian waits for no one…</div>
+    <button class="btn" id="btn-resume" style="margin-top:24px">RESUME</button>
+    <div style="margin-top:16px;display:flex;gap:12px;justify-content:center">
+      <button class="btn" id="btn-pause-restart" style="font-size:14px;padding:10px 22px">Restart</button>
+      <button class="btn" id="btn-mute" style="font-size:14px;padding:10px 22px">Sound: ON</button>
+    </div>
   </div>
 </div>
 
