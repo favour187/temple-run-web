@@ -14,7 +14,7 @@ const POWERUP_TYPES = {
 const fx = { magnet: 0, shield: 0, slowmo: 0 };  // remaining seconds per effect
 
 /* ---------------- constants ---------------- */
-const LANES = [-2.5, 0, 2.5];
+const LANES = [2.5, 0, -2.5]; // camera looks down +Z: screen-right is -X, screen-left is +X
 const SEGMENT_LEN = 26;
 const SEGMENTS = 6;
 const START_SPEED = 8;
@@ -25,7 +25,7 @@ const JUMP_V = 8.0;
 const OBSTACLE_HALF_Z = 1.35;
 const OBSTACLE_HALF_X = 1.05;
 const COIN_SCORE = 25;
-const CHASE_GAP = 6.8;
+const CHASE_GAP = 9.5;
 
 /* ---------------- dom ---------------- */
 const $ = (id) => document.getElementById(id);
@@ -52,7 +52,7 @@ scene.background = new THREE.Color(0xbfd3de);
 scene.fog = new THREE.Fog(0xbfd3de, 46, 150);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 300);
-camera.position.set(0, 4.6, -7.2);
+camera.position.set(0, 3.9, -6.8);
 
 /* ---------------- lights ---------------- */
 const hemi = new THREE.HemisphereLight(0xffffff, 0x66755f, 1.0);
@@ -357,6 +357,75 @@ function disposeObject(o) {
 }
 
 
+function buildRunner() {
+  // A brand-new player character, hand-built from primitives:
+  // an idol thief in a fedora with the stolen idol poking out of his backpack.
+  const runner = new THREE.Group();
+  const std = (color, rough = 0.85) =>
+    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0 });
+
+  const skinM = std(0xe8b98a, 0.75);
+  const shirtM = std(0x3b6fd4, 0.8);
+  const pantsM = std(0x6b4a2f, 0.9);
+  const bootsM = std(0x423a30, 0.7);
+  const hatM = std(0x8a5a2b, 0.75);
+  const sashM = std(0xc0392b, 0.7);
+  const packM = std(0x5c4a32, 0.85);
+
+  // legs (pivot at the hip so they can swing)
+  const legGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.6, 10);
+  legGeo.translate(0, -0.3, 0);
+  const legL = new THREE.Mesh(legGeo, pantsM); legL.position.set(-0.09, 0.5, 0);
+  const legR = new THREE.Mesh(legGeo, pantsM); legR.position.set(0.09, 0.5, 0);
+  const bootGeo = new THREE.BoxGeometry(0.13, 0.12, 0.24);
+  const bootL = new THREE.Mesh(bootGeo, bootsM); bootL.position.set(0, -0.42, 0.04);
+  const bootR = new THREE.Mesh(bootGeo, bootsM); bootR.position.set(0, -0.42, 0.04);
+  legL.add(bootL); legR.add(bootR);
+
+  // torso + red sash belt
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.135, 0.5, 14), shirtM);
+  torso.position.y = 1.05;
+  const sash = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.035, 8, 20), sashM);
+  sash.position.y = 0.88;
+
+  // arms (pivot at the shoulder)
+  const armGeo = new THREE.CylinderGeometry(0.05, 0.042, 0.5, 10);
+  armGeo.translate(0, -0.25, 0);
+  const armL = new THREE.Mesh(armGeo, shirtM); armL.position.set(-0.235, 1.2, 0);
+  const armR = new THREE.Mesh(armGeo, shirtM); armR.position.set(0.235, 1.2, 0);
+  const handGeo = new THREE.SphereGeometry(0.052, 10, 8);
+  const handL = new THREE.Mesh(handGeo, skinM); handL.position.set(0, -0.28, 0);
+  const handR = new THREE.Mesh(handGeo, skinM); handR.position.set(0, -0.28, 0);
+  armL.add(handL); armR.add(handR);
+
+  // head + fedora
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 14), skinM);
+  head.position.y = 1.45;
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.035, 18), hatM);
+  brim.position.y = 1.575;
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.185, 0.13, 16), hatM);
+  crown.position.y = 1.645;
+
+  // backpack with the stolen idol peeking out
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.34, 0.16), packM);
+  pack.position.set(0, 1.1, -0.22);
+  const idol = MODELS.rock.scene.clone(true);
+  idol.traverse((o) => {
+    if (o.isMesh) o.material = new THREE.MeshStandardMaterial({
+      color: 0xffc94d, metalness: 1, roughness: 0.3,
+      emissive: 0x6b4a00, emissiveIntensity: 0.55,
+    });
+  });
+  idol.scale.setScalar(0.13);
+  idol.position.set(0, 1.3, -0.28);
+  idol.rotation.y = 0.6;
+
+  runner.add(legL, legR, torso, sash, armL, armR, head, brim, crown, pack, idol);
+  runner.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
+  runner.userData = { legL, legR, armL, armR, runPhase: 0 };
+  return runner;
+}
+
 function buildWorld() {
   for (let i = 0; i < SEGMENTS; i++) {
     const seg = new THREE.Group();
@@ -367,8 +436,7 @@ function buildWorld() {
     segments.push(seg);
   }
 
-  player = MODELS.spider.scene.clone(true);
-  player.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
+  player = buildRunner();
   player.position.set(0, 0, 0);
   scene.add(player);
 
@@ -379,7 +447,7 @@ function buildWorld() {
   shieldBubble.visible = false;
   player.add(shieldBubble);
 
-  chaser = tintClone(cloneModel('spider', 1.45), '#3a2b1f', 0.75);
+  chaser = tintClone(cloneModel('spider', 1.15), '#3a2b1f', 0.75);
   chaser.position.set(0, 0, -CHASE_GAP);
   scene.add(chaser);
 
@@ -453,6 +521,7 @@ function startGame() {
   state.bonus = 0;
   fx.magnet = 0; fx.shield = 0; fx.slowmo = 0;
   shieldBubble.visible = false;
+  if (player.userData) player.userData.runPhase = 0;
   state.z = 0; state.speed = START_SPEED; state.distance = 0; state.coins = 0;
   player.position.set(0, 0, 0);
   player.rotation.set(0, 0, 0);
@@ -518,18 +587,38 @@ function update(dt) {
   }
 
   // player transform + run animation
-  const bob = state.mode === 'run' ? Math.abs(Math.sin(performance.now() * 0.011)) * 0.14 : 0;
-  player.position.set(state.x, state.y + bob, 0);
+  const bob = state.mode === 'run' ? Math.abs(Math.sin(performance.now() * 0.011)) * 0.12 : 0;
+  player.position.set(state.x, state.y + bob, state.z); // ride the world scroll
   player.rotation.y = 0;
   const tilt = (LANES[state.lane] - state.x) * 0.16;
   player.rotation.z = THREE.MathUtils.clamp(tilt, -0.28, 0.28);
 
-  // chaser (gets closer as you speed up — drama!)
+  const u = player.userData;
+  if (state.mode === 'dead') {
+    // caught: tumble over
+    player.rotation.x = -1.35;
+    u.legL.rotation.x = 0.6; u.legR.rotation.x = -0.2;
+    u.armL.rotation.x = -2.2; u.armR.rotation.x = -1.9;
+  } else if (state.y > 0.01) {
+    // airborne: legs tucked, arms up
+    player.rotation.x = 0.08;
+    u.legL.rotation.x = 0.85; u.legR.rotation.x = 0.45;
+    u.armL.rotation.x = -2.5; u.armR.rotation.x = -2.5;
+  } else {
+    // running: swinging limbs, forward lean
+    player.rotation.x = 0.13;
+    u.runPhase += dt * (6 + state.speed * 1.1);
+    const s = Math.sin(u.runPhase);
+    u.legL.rotation.x = s * 0.8; u.legR.rotation.x = -s * 0.8;
+    u.armL.rotation.x = -0.2 - s * 0.65; u.armR.rotation.x = -0.2 + s * 0.65;
+  }
+
+  // chaser (creeps closer as you speed up — drama, but never blocks the view)
   const chaseSpeed = state.mode === 'run' ? 1.0 : 6.5;
   chaser.position.x += (state.x - chaser.position.x) * Math.min(1, dt * 1.6);
   const gap = state.mode === 'run'
-    ? CHASE_GAP - ((state.speed - START_SPEED) / (MAX_SPEED - START_SPEED)) * 1.6
-    : 1.4;
+    ? CHASE_GAP - ((state.speed - START_SPEED) / (MAX_SPEED - START_SPEED)) * 0.8
+    : 1.2;
   chaser.position.z += (state.z - gap - chaser.position.z) * Math.min(1, dt * chaseSpeed);
   chaser.position.y = state.mode === 'run' ? Math.abs(Math.sin(performance.now() * 0.011 + 2)) * 0.16 : 0.1;
   chaser.rotation.z = THREE.MathUtils.clamp((state.x - chaser.position.x) * -0.08, -0.2, 0.2);
@@ -614,10 +703,10 @@ function update(dt) {
 
   // camera
   const camX = state.x * 0.55;
-  const camY = 4.5 + Math.max(0, state.y) * 0.25;
-  const camZ = state.z - 7.2;
+  const camY = 3.9 + Math.max(0, state.y) * 0.25;
+  const camZ = state.z - 6.8;
   camera.position.set(camX, camY, camZ);
-  camera.lookAt(state.x * 0.7, 1.5 + Math.max(0, state.y) * 0.3, state.z + 8);
+  camera.lookAt(state.x * 0.72, 0.9 + Math.max(0, state.y) * 0.3, state.z + 7);
 
   // sun + ground follow
   sun.position.set(state.x + 28, 42, state.z + 14);
