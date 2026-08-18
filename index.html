@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b1410">
-<title>Temple Run — Web Edition</title>
+<title>Idol Rush — Outrun the Guardian</title>
 <style>
   :root {
     --gold: #ffc94d;
@@ -42,6 +42,7 @@
   #hud-left .score { font-size: 26px; font-weight: 800; letter-spacing: 0.5px; }
   #hud-left .sub { font-size: 12px; opacity: 0.85; margin-top: 2px; }
   #hud-left .coins { font-size: 14px; margin-top: 4px; }
+  #hud-left .fx { font-size: 11.5px; margin-top: 5px; min-height: 13px; letter-spacing: 0.4px; }
   #hud-left .coins .dot {
     display: inline-block; width: 10px; height: 10px; border-radius: 50%;
     background: radial-gradient(circle at 35% 35%, #ffe9a8, var(--gold) 60%, #b9821a);
@@ -145,35 +146,38 @@
 <div id="hud-left" class="hud hidden">
   <div class="score" id="score">0 m</div>
   <div class="sub" id="speed">8.0 m/s</div>
-  <div class="coins"><span class="dot"></span><span id="coins">0</span></div>
+  <div class="coins"><span class="dot"></span><span id="coins">0</span> <span style="opacity:.75;font-size:11px">IDOLS</span></div>
+  <div class="fx" id="fx"></div>
 </div>
 <div id="hud-right" class="hud hidden">
   <div class="lbl">BEST</div>
   <div class="best" id="best">0 m</div>
 </div>
-<div id="swipe-hint" class="hidden">⬅ ➡ swipe to change lane &nbsp;·&nbsp; ⬆ swipe / space to jump</div>
+<div id="swipe-hint" class="hidden">⬅ ➡ swipe to change lane &nbsp;·&nbsp; ⬆ swipe / space to jump &nbsp;·&nbsp; grab the crystals!</div>
 
 <div id="overlay-menu" class="overlay">
   <div class="card">
-    <div class="title">TEMPLE RUN</div>
-    <div class="subtitle">Web edition · real 3D assets from the <b>kenmaz/TempleRun-Unity</b> open-source clone</div>
+    <div class="title">IDOL RUSH</div>
+    <div class="subtitle">You stole the golden idol. The temple guardian is right behind you.</div>
     <div class="howto">
-      <div><b>⬅ ➡</b> or <b>A / D</b><br>switch lane</div>
+      <div><b>⬅ ➡</b> / <b>A D</b><br>switch lane</div>
       <div><b>⬆</b> / <b>SPACE</b><br>jump rocks &amp; logs</div>
-      <div><b>🪙</b><br>grab coins</div>
-      <div><b>🕷️</b><br>don't get caught</div>
+      <div><b>🥇</b><br>grab idols</div>
+      <div><b>🧲</b><br>magnet pulls idols</div>
+      <div><b>🛡</b><br>shield smashes through</div>
+      <div><b>🕐</b><br>slow-mo time warp</div>
     </div>
     <button class="btn" id="btn-play">RUN</button>
-    <div class="credit">Spider character, palms, bamboo, rocks &amp; skybox — original 3D assets shipped in the cloned Unity repo.</div>
+    <div class="credit">Guardian spider, palms, bamboo &amp; rocks — 3D assets from the public kenmaz/TempleRun-Unity project · Three.js</div>
   </div>
 </div>
 
 <div id="overlay-dead" class="overlay hidden">
   <div class="card">
-    <div class="title" style="font-size:clamp(28px,6vw,44px)">GOT YOU!</div>
+    <div class="title" style="font-size:clamp(28px,6vw,44px)">CAUGHT!</div>
     <div class="final-score" id="final-score">0 m</div>
     <div class="stats">
-      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--gold);margin-right:6px"></span>Coins: <b id="final-coins">0</b></div>
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--gold);margin-right:6px"></span>Idols: <b id="final-coins">0</b></div>
       <div>Best: <b id="final-best">0 m</b></div>
     </div>
     <button class="btn" id="btn-restart">RUN AGAIN</button>
@@ -183,7 +187,7 @@
 
 <div id="loader">
   <div class="spinner"></div>
-  <div style="font-size:14px;opacity:0.85">Summoning the temple…</div>
+  <div style="font-size:14px;opacity:0.85">Snatching the idol…</div>
 </div>
 
 <script type="importmap">

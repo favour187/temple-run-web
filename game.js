@@ -5,6 +5,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+/* ---------------- power-ups ---------------- */
+const POWERUP_TYPES = {
+  magnet: { color: 0x3aa0ff, dur: 8 },
+  shield: { color: 0x35d07f, dur: 6 },
+  slowmo: { color: 0xb06cff, dur: 5 },
+};
+const fx = { magnet: 0, shield: 0, slowmo: 0 };  // remaining seconds per effect
+
 /* ---------------- constants ---------------- */
 const LANES = [-2.5, 0, 2.5];
 const SEGMENT_LEN = 26;
@@ -21,12 +29,12 @@ const CHASE_GAP = 6.8;
 
 /* ---------------- dom ---------------- */
 const $ = (id) => document.getElementById(id);
-const elScore = $('score'), elSpeed = $('speed'), elCoins = $('coins'), elBest = $('best');
+const elScore = $('score'), elSpeed = $('speed'), elCoins = $('coins'), elBest = $('best'), elFx = $('fx');
 const overlayMenu = $('overlay-menu'), overlayDead = $('overlay-dead');
 const elFinalScore = $('final-score'), elFinalCoins = $('final-coins'), elFinalBest = $('final-best');
 const hudLeft = $('hud-left'), hudRight = $('hud-right'), swipeHint = $('swipe-hint'), loader = $('loader');
 
-const BEST_KEY = 'temple-run-web-best';
+const BEST_KEY = 'idol-rush-best';
 let best = Number(localStorage.getItem(BEST_KEY) || 0);
 
 /* ---------------- renderer / scene ---------------- */
@@ -85,10 +93,14 @@ const sfx = {
   jump: () => blip(220, 520, 0.16, 'triangle', 0.12),
   crash: () => { blip(200, 40, 0.5, 'sawtooth', 0.3); blip(90, 30, 0.6, 'square', 0.18); },
   start: () => blip(330, 660, 0.2, 'triangle', 0.12),
+  magnet: () => blip(420, 880, 0.16, 'sine', 0.14),
+  shield: () => blip(300, 640, 0.18, 'triangle', 0.14),
+  slowmo: () => blip(520, 260, 0.3, 'sine', 0.14),
+  smash: () => { blip(180, 60, 0.25, 'square', 0.22); blip(700, 900, 0.1, 'sine', 0.1); },
 };
 
 /* ---------------- state ---------------- */
-const state = { mode: 'boot', lane: 1, x: 0, y: 0, vy: 0, z: 0, speed: START_SPEED, distance: 0, coins: 0, deadAt: 0 };
+const state = { mode: 'boot', lane: 1, x: 0, y: 0, vy: 0, z: 0, speed: START_SPEED, distance: 0, coins: 0, bonus: 0, deadAt: 0 };
 
 /* ---------------- assets ---------------- */
 const loader3d = new GLTFLoader();
@@ -117,7 +129,7 @@ async function loadAssets() {
 
 /* ---------------- world ---------------- */
 let grassPlane, pathPlane;
-let player, chaser;
+let player, chaser, shieldBubble;
 const segments = [];
 let lastObstacleLane = -1;
 
@@ -168,15 +180,20 @@ function tintClone(root, color, amount = 0.55) {
   return root;
 }
 
-function makeCoin() {
-  const geo = new THREE.CylinderGeometry(0.42, 0.42, 0.09, 22);
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xffc94d, metalness: 1, roughness: 0.25,
-    emissive: 0x5a3d05, emissiveIntensity: 0.6,
+function makeIdol() {
+  // a tiny golden idol made from the real rock model in the asset set
+  const idol = MODELS.rock.scene.clone(true);
+  idol.traverse((o) => {
+    if (o.isMesh) {
+      o.material = new THREE.MeshStandardMaterial({
+        color: 0xffc94d, metalness: 1, roughness: 0.28,
+        emissive: 0x7a5200, emissiveIntensity: 0.5,
+      });
+      o.castShadow = true;
+    }
   });
-  const coin = new THREE.Mesh(geo, mat);
-  coin.castShadow = true;
-  return coin;
+  idol.scale.setScalar(0.26);
+  return idol;
 }
 
 function randomDecorSide(side /* -1 or 1 */) {
@@ -198,6 +215,28 @@ function randomDecorSide(side /* -1 or 1 */) {
   obj.position.x = side * (6.2 + Math.random() * 6.5);
   obj.rotation.y = Math.random() * Math.PI * 2;
   return obj;
+}
+
+function makePowerup(type) {
+  const cfg = POWERUP_TYPES[type];
+  const g = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.42),
+    new THREE.MeshStandardMaterial({
+      color: cfg.color, emissive: cfg.color, emissiveIntensity: 0.9,
+      metalness: 0.2, roughness: 0.3,
+    })
+  );
+  core.castShadow = true;
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.58, 0.045, 8, 26),
+    new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.75 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -0.4;
+  g.add(core, ring);
+  g.userData = { type, alive: true, baseY: 0.8, ring };
+  return g;
 }
 
 function makeObstacle(lane) {
@@ -231,21 +270,21 @@ function makeObstacle(lane) {
   return g;
 }
 
-function makeCoinRow(lane, z0) {
+function makeIdolRow(lane, z0) {
   const row = [];
   for (let i = 0; i < 5; i++) {
-    const coin = makeCoin();
-    coin.position.set(LANES[lane], 0.85, z0 + i * 2.1);
-    coin.rotation.x = Math.PI / 2;
-    coin.userData = { lane, alive: true, baseY: 0.85 };
-    row.push(coin);
+    const idol = makeIdol();
+    idol.position.set(LANES[lane], 0.75, z0 + i * 2.1);
+    idol.rotation.y = Math.random() * Math.PI * 2;
+    idol.userData = { lane, alive: true, baseY: 0.75 };
+    row.push(idol);
   }
   return row;
 }
 
 function populateSegment(seg, baseZ) {
   // clear previous content
-  for (const key of ['decor', 'obstacles', 'coins']) {
+  for (const key of ['decor', 'obstacles', 'coins', 'powerups']) {
     for (const o of seg.userData[key]) {
       seg.remove(o);
       disposeObject(o);
@@ -270,16 +309,16 @@ function populateSegment(seg, baseZ) {
   // one obstacle (sometimes two, spread out, different lanes, never the same as previous segment's last)
   const nObs = Math.random() < 0.45 ? 2 : 1;
   let lane = lastObstacleLane;
-  const obsZ = [];
+  // warm-up: the very first segment keeps obstacles far away so runners can react
+  const obsStart = baseZ === 0 ? 20 : 6;
   for (let i = 0; i < nObs; i++) {
     let candidates = [0, 1, 2].filter((l) => l !== lane);
     lane = candidates[Math.floor(Math.random() * candidates.length)];
     const ob = makeObstacle(lane);
-    ob.position.z = 6 + i * (SEGMENT_LEN - 14) + Math.random() * 4;
+    ob.position.z = obsStart + i * (SEGMENT_LEN - 14) + Math.random() * 4;
     ob.position.x = LANES[lane];
     seg.add(ob);
     seg.userData.obstacles.push(ob);
-    obsZ.push(ob.position.z);
   }
   lastObstacleLane = lane;
 
@@ -289,28 +328,39 @@ function populateSegment(seg, baseZ) {
   if (free.length && Math.random() < 0.9) {
     const cl = free[Math.floor(Math.random() * free.length)];
     const cz = 6 + Math.random() * 9;
-    for (const coin of makeCoinRow(cl, cz)) {
-      seg.add(coin);
-      seg.userData.coins.push(coin);
+    for (const idol of makeIdolRow(cl, cz)) {
+      seg.add(idol);
+      seg.userData.coins.push(idol);
     }
+  }
+
+  // power-up on another free lane
+  if (free.length > 1 && Math.random() < 0.28) {
+    const pl = free[Math.floor(Math.random() * free.length)];
+    const types = Object.keys(POWERUP_TYPES);
+    const type = types[Math.floor(Math.random() * types.length)];
+    const pu = makePowerup(type);
+    pu.position.set(LANES[pl], 0.8, 6 + Math.random() * 9);
+    seg.add(pu);
+    seg.userData.powerups.push(pu);
   }
 }
 
 function disposeObject(o) {
   o.traverse((n) => {
     if (n.isMesh) {
-      n.geometry && n.geometry.dispose && n.geometry !== coinGeo && n.geometry.dispose();
+      n.geometry && n.geometry.dispose && n.geometry.dispose();
       if (Array.isArray(n.material)) n.material.forEach((m) => m.dispose && m.dispose());
       else n.material && n.material.dispose && n.material.dispose();
     }
   });
 }
-const coinGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.09, 22);
+
 
 function buildWorld() {
   for (let i = 0; i < SEGMENTS; i++) {
     const seg = new THREE.Group();
-    seg.userData = { decor: [], obstacles: [], coins: [], baseZ: i * SEGMENT_LEN };
+    seg.userData = { decor: [], obstacles: [], coins: [], powerups: [], baseZ: i * SEGMENT_LEN };
     seg.position.z = seg.userData.baseZ;
     scene.add(seg);
     populateSegment(seg, seg.userData.baseZ);
@@ -321,6 +371,13 @@ function buildWorld() {
   player.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
   player.position.set(0, 0, 0);
   scene.add(player);
+
+  shieldBubble = new THREE.Mesh(
+    new THREE.SphereGeometry(1.05, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0x7dffa0, transparent: true, opacity: 0.22, depthWrite: false })
+  );
+  shieldBubble.visible = false;
+  player.add(shieldBubble);
 
   chaser = tintClone(cloneModel('spider', 1.45), '#3a2b1f', 0.75);
   chaser.position.set(0, 0, -CHASE_GAP);
@@ -393,6 +450,9 @@ function startGame() {
   state.mode = 'run';
   laneSwitchT = 1; laneFromX = 0;
   state.lane = 1; state.x = 0; state.y = 0; state.vy = 0;
+  state.bonus = 0;
+  fx.magnet = 0; fx.shield = 0; fx.slowmo = 0;
+  shieldBubble.visible = false;
   state.z = 0; state.speed = START_SPEED; state.distance = 0; state.coins = 0;
   player.position.set(0, 0, 0);
   player.rotation.set(0, 0, 0);
@@ -410,22 +470,24 @@ function gameOver() {
   state.mode = 'dead';
   state.deadAt = performance.now();
   sfx.crash();
-  if (state.distance > best) {
-    best = Math.floor(state.distance);
+  const finalScore = Math.floor(state.distance + state.coins * COIN_SCORE + state.bonus);
+  if (finalScore > best) {
+    best = finalScore;
     localStorage.setItem(BEST_KEY, String(best));
   }
-  elFinalScore.textContent = `${Math.floor(state.distance)} m`;
+  elFinalScore.textContent = `${Math.floor(state.distance + state.coins * COIN_SCORE + state.bonus)} m`;
   elFinalCoins.textContent = String(state.coins);
   elFinalBest.textContent = `${best} m`;
+  elFx.innerHTML = '';
   hudLeft.classList.add('hidden');
   swipeHint.classList.add('hidden');
   setTimeout(() => overlayDead.classList.remove('hidden'), 550);
 }
 
-function collectCoin(coin) {
-  if (!coin.userData.alive) return;
-  coin.userData.alive = false;
-  coin.visible = false;
+function collectIdol(idol) {
+  if (!idol.userData.alive) return;
+  idol.userData.alive = false;
+  idol.visible = false;
   state.coins += 1;
   sfx.coin();
 }
@@ -436,9 +498,12 @@ const clock = new THREE.Clock();
 function update(dt) {
   if (state.mode !== 'run' && state.mode !== 'dead') return;
   if (state.mode === 'run') {
-    state.speed = Math.min(MAX_SPEED, state.speed + RAMP * dt);
-    state.distance += state.speed * dt;
-    state.z += state.speed * dt;
+    // effect timers
+    for (const k of Object.keys(fx)) fx[k] = Math.max(0, fx[k] - dt);
+    state.speed = Math.min(MAX_SPEED, state.speed + RAMP * dt * (fx.slowmo > 0 ? 0.35 : 1));
+    const eff = state.speed * (fx.slowmo > 0 ? 0.62 : 1);
+    state.distance += eff * dt;
+    state.z += eff * dt;
 
     // lane lerp
     laneSwitchT = Math.min(1, laneSwitchT + dt * 5.2);
@@ -459,10 +524,12 @@ function update(dt) {
   const tilt = (LANES[state.lane] - state.x) * 0.16;
   player.rotation.z = THREE.MathUtils.clamp(tilt, -0.28, 0.28);
 
-  // chaser
+  // chaser (gets closer as you speed up — drama!)
   const chaseSpeed = state.mode === 'run' ? 1.0 : 6.5;
   chaser.position.x += (state.x - chaser.position.x) * Math.min(1, dt * 1.6);
-  const gap = state.mode === 'run' ? CHASE_GAP : 1.4;
+  const gap = state.mode === 'run'
+    ? CHASE_GAP - ((state.speed - START_SPEED) / (MAX_SPEED - START_SPEED)) * 1.6
+    : 1.4;
   chaser.position.z += (state.z - gap - chaser.position.z) * Math.min(1, dt * chaseSpeed);
   chaser.position.y = state.mode === 'run' ? Math.abs(Math.sin(performance.now() * 0.011 + 2)) * 0.16 : 0.1;
   chaser.rotation.z = THREE.MathUtils.clamp((state.x - chaser.position.x) * -0.08, -0.2, 0.2);
@@ -477,27 +544,69 @@ function update(dt) {
     }
   }
 
+  // magnet: pull nearby idols toward the player
+  if (fx.magnet > 0) {
+    for (const seg of segments) {
+      for (const idol of seg.userData.coins) {
+        if (!idol.userData.alive) continue;
+        const wz = seg.position.z + idol.position.z;
+        if (Math.abs(wz - state.z) < 7 && Math.abs(idol.position.x - state.x) < 7) {
+          idol.position.x += (state.x - idol.position.x) * Math.min(1, dt * 7);
+          idol.position.z += ((state.z - seg.position.z) - idol.position.z) * Math.min(1, dt * 7);
+        }
+      }
+    }
+  }
+
+  // shield bubble visuals
+  shieldBubble.visible = fx.shield > 0;
+  if (fx.shield > 0) {
+    const pulse = 1 + Math.sin(performance.now() * 0.008) * 0.06;
+    shieldBubble.scale.setScalar(pulse);
+    shieldBubble.material.opacity = fx.shield < 1.5 ? (Math.sin(performance.now() * 0.02) > 0 ? 0.3 : 0.1) : 0.22;
+  }
+
   // collisions
   if (state.mode === 'run') {
     for (const seg of segments) {
       const b = seg.userData.baseZ;
       if (b > state.z + 8 || b + SEGMENT_LEN < state.z - 4) continue;
       for (const ob of seg.userData.obstacles) {
+        if (ob.userData.smashed) continue;
         const worldZ = seg.position.z + ob.position.z;
         if (Math.abs(worldZ - state.z) < OBSTACLE_HALF_Z) {
           const ox = ob.userData.x;
           if (Math.abs(state.x - ox) < OBSTACLE_HALF_X) {
             if (ob.userData.jumpable && state.y > 0.55) continue;
+            if (fx.shield > 0) {
+              // smash through it!
+              fx.shield = 0;
+              ob.userData.smashed = true;
+              ob.userData.smashT = 0;
+              state.bonus += 15;
+              sfx.smash();
+              continue;
+            }
             gameOver();
             return;
           }
+        }
+      }
+      for (const pu of seg.userData.powerups) {
+        if (!pu.userData.alive) continue;
+        const worldZ = seg.position.z + pu.position.z;
+        if (Math.abs(worldZ - state.z) < 1.25 && Math.abs(state.x - pu.position.x) < 1.25 && Math.abs(state.y - 1.0) < 1.8) {
+          pu.userData.alive = false;
+          pu.visible = false;
+          fx[pu.userData.type] = POWERUP_TYPES[pu.userData.type].dur;
+          sfx[pu.userData.type]();
         }
       }
       for (const coin of seg.userData.coins) {
         if (!coin.userData.alive) continue;
         const worldZ = seg.position.z + coin.position.z;
         if (Math.abs(worldZ - state.z) < 1.15 && Math.abs(state.x - coin.position.x) < 1.2 && Math.abs(state.y - 1.0) < 1.6) {
-          collectCoin(coin);
+          collectIdol(coin);
         }
       }
     }
@@ -517,21 +626,45 @@ function update(dt) {
   grassPlane.position.z = Math.round(state.z / tile) * tile;
   pathPlane.position.z = grassPlane.position.z;
 
-  // coin spin
+  // idol spin & powerup float; smash animation
   const now = performance.now() / 1000;
   for (const seg of segments) {
-    for (const coin of seg.userData.coins) {
-      if (!coin.userData.alive) continue;
-      coin.rotation.z = now * 4;
-      coin.position.y = coin.userData.baseY + Math.sin(now * 3 + coin.position.z) * 0.12;
+    for (const idol of seg.userData.coins) {
+      if (!idol.userData.alive) continue;
+      idol.rotation.y = now * 3;
+      idol.position.y = idol.userData.baseY + Math.sin(now * 3 + idol.position.z) * 0.12;
+    }
+    for (const pu of seg.userData.powerups) {
+      if (!pu.userData.alive) continue;
+      pu.rotation.y = now * 2.4;
+      pu.position.y = pu.userData.baseY + Math.sin(now * 3 + pu.position.z) * 0.16;
+      const ring = pu.userData.ring;
+      if (ring) {
+        ring.rotation.z = now * 1.8;
+        const rs = 1 + Math.sin(now * 5) * 0.12;
+        ring.scale.setScalar(rs);
+      }
+    }
+    for (const ob of seg.userData.obstacles) {
+      if (!ob.userData.smashed) continue;
+      ob.userData.smashT += dt;
+      const k = Math.max(0, 1 - ob.userData.smashT * 3.5);
+      ob.scale.setScalar(k);
+      if (k <= 0) ob.visible = false;
     }
   }
 
   // HUD
-  elScore.textContent = `${Math.floor(state.distance + state.coins * COIN_SCORE)} m`;
+  const totalScore = state.distance + state.coins * COIN_SCORE + state.bonus;
+  elScore.textContent = `${Math.floor(totalScore)} m`;
   elSpeed.textContent = `${state.speed.toFixed(1)} m/s`;
   elCoins.textContent = String(state.coins);
-  elBest.textContent = `${Math.max(best, Math.floor(state.distance + state.coins * COIN_SCORE))} m`;
+  elBest.textContent = `${Math.max(best, Math.floor(totalScore))} m`;
+  const fxBits = [];
+  if (fx.magnet > 0) fxBits.push(`<span style="color:#5fb2ff">MAGNET ${Math.ceil(fx.magnet)}s</span>`);
+  if (fx.shield > 0) fxBits.push(`<span style="color:#6fe08a">SHIELD ${Math.ceil(fx.shield)}s</span>`);
+  if (fx.slowmo > 0) fxBits.push(`<span style="color:#c58bff">SLOW-MO ${Math.ceil(fx.slowmo)}s</span>`);
+  elFx.innerHTML = fxBits.join(' · ');
 }
 
 function render() {
@@ -568,5 +701,3 @@ let ASSETS = null;
 $('btn-play').addEventListener('click', startGame);
 $('btn-restart').addEventListener('click', startGame);
 
-/* debug hook (used by automated tests) */
-window.__forceDeath = () => { if (state.mode === 'run') gameOver(); };

@@ -1,8 +1,9 @@
-# Temple Run — Web Edition 🕷️🏃
+# Idol Rush 🕷️🥇
 
-A browser-playable, Temple Run–style endless runner built with the **real 3D
-assets** from the open-source Unity clone
-[`kenmaz/TempleRun-Unity`](https://github.com/kenmaz/TempleRun-Unity).
+**Idol Rush** is a Temple Run–style endless runner: you've snatched the
+golden idol from the temple, and the giant guardian spider is right behind
+you. Built for the browser with the **real 3D assets** from the open-source
+Unity clone [`kenmaz/TempleRun-Unity`](https://github.com/kenmaz/TempleRun-Unity).
 
 No Unity, no plugins — pure **Three.js + WebGL**, deployable to **Render** as a
 static site.
@@ -12,7 +13,11 @@ static site.
 - **⬅ ➡ / A D** — change lane
 - **⬆ / Space** — jump rocks & logs
 - Swipe on touch screens; tap to jump
-- Grab coins, outrun the giant spider. Speed keeps climbing.
+- **🥇 Grab idols** — +25 m each
+- **🧲 Magnet** — pulls nearby idols to you (8 s)
+- **🛡 Shield** — smash straight through one obstacle (6 s)
+- **🕐 Slow-mo** — time warp for tight dodges (5 s)
+- Outrun the giant guardian spider. Speed keeps climbing — and so does it.
 
 ## 🚀 Deploy to Render
 
@@ -65,6 +70,7 @@ python3 -m http.server 8000
 ```
 index.html              UI shell + import map
 game.js                 full game (three.js, no build step)
+LICENSE                 MIT
 render.yaml             Render Blueprint (static site)
 Dockerfile, nginx.conf  alternative Web-Service deploy
 lib/three.module.js     Three.js r160 (vendored, MIT)
@@ -90,7 +96,7 @@ They were converted to glTF/GLB with a custom converter (in
 
 ## ⚖️ Attribution & licensing
 
-- Game code (this repo): feel free to use.
+- Game code (this repo): MIT license.
 - 3D assets: Unity's free **Terrain Assets** sample pack, the third-party
   *Infestor* spider, and Unity skyboxes — all shipped inside the public
   `kenmaz/TempleRun-Unity` clone (which has no LICENSE file; assets are for
